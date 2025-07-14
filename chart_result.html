@@ -317,7 +317,7 @@
             <p style="margin-bottom: 15px; color: #666;">Upload your fuel_price_averages.json file or use sample data</p>
             <input type="file" id="jsonFile" accept=".json">
             <label for="jsonFile">Choose JSON File</label>
-            <button class="sample-data-btn" onclick="loadSampleData()">Load Sample Data</button>
+            <button class="sample-data-btn" onclick="loadSampleData()">Data until 07/25</button>
         </div>
         
         <div id="loading" class="loading" style="display: none;">
@@ -380,8 +380,16 @@
             'EUR': 'EUR/L'
         };
         
-        // Sample data - your actual Madagascar data
+        // JSON file data - your actual Madagascar data
+        //UPDATE here with updated data
         const SAMPLE_DATA = {
+            "04/2022": [7102.543, 1.783, 1.61, 5800.785, 1.456, 1.315],
+            "05/2022": [7510.271, 1.883, 1.722, 6140.559, 1.54, 1.408],
+            "06/2022": [8511.776, 2.133, 2.019, 6975.146, 1.748, 1.655],
+            "08/2022": [9681.228, 2.377, 2.308, 7949.69, 1.952, 1.895],
+            "09/2022": [8833.483, 2.155, 2.117, 7243.236, 1.767, 1.736],
+            "10/2022": [8567.388, 2.084, 2.092, 7021.489, 1.708, 1.714],
+            "11/2022": [8210.61, 1.962, 2.013, 6724.175, 1.607, 1.648],
             "12/2022": [382.145, 1.876, 1.878, 546.608, 1.536, 1.537],
             "01/2023": [640.212, 1.733, 1.662, 415.51, 1.417, 1.359],
             "02/2023": [622.792, 1.719, 1.614, 465.096, 1.406, 1.32],
