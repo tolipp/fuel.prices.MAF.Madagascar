@@ -1,70 +1,79 @@
-
 import os
 import re
 import statistics
 import json
-from datetime import datetime # Import datetime for proper date parsing and sorting
+from datetime import datetime
 from PyPDF2 import PdfReader
 
 print("Current working directory:", os.getcwd())
 
 folder_path = r'C:\Users\Tobias.Lippuner\OneDrive - MAF International\General\Documents\fuel_project\fuel_prices'
 
-# Regex to extract year and month (e.g., "AVRIL 2025" or "04/2025")
-# The regex itself seems fine for capturing these patterns.
-pattern_date = re.compile(r'(\b\d{2}/\d{4}\b|\b[A-Z]{3,9} \d{4}\b|\b\d{4}\b)', re.IGNORECASE)
+# Regex to extract date patterns: MM/YYYY, Month YYYY, or YYYY alone
+pattern_date = re.compile(
+    r'(\b\d{2}/\d{4}\b|'          # e.g. 04/2025
+    r'\b[A-Z]{3,9} \d{4}\b|'      # e.g. AVRIL 2025 or APRIL 2025
+    r'\b\d{4}\b)',                # e.g. 2024
+    re.IGNORECASE
+)
 
 metrics = [
     'Domestic_MGA/L', 'Domestic_USD/L', 'Domestic_EUR/L',
     'International_MGA/L', 'International_USD/L', 'International_EUR/L'
 ]
 
-# Mapping for month names to numbers
+# Month mapping covering English and French abbreviations and full names
 MONTH_MAP = {
+    # English abbreviations
     'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
     'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12,
-    'JANVIER': 1, 'FEVRIER': 2, 'MARS': 3, 'AVRIL': 4, 'MAI': 5, 'JUIN': 6,
-    'JUILLET': 7, 'AOUT': 8, 'SEPTEMBRE': 9, 'OCTOBRE': 10, 'NOVEMBRE': 11, 'DECEMBRE': 12
+    # English full names
+    'JANUARY': 1, 'FEBRUARY': 2, 'MARCH': 3, 'APRIL': 4, 'MAY': 5, 'JUNE': 6,
+    'JULY': 7, 'AUGUST': 8, 'SEPTEMBER': 9, 'OCTOBER': 10, 'NOVEMBER': 11, 'DECEMBER': 12,
+    # French abbreviations and full names
+    'JANVIER': 1, 'FEV': 2, 'FEVRIER': 2, 'MARS': 3, 'AVR': 4, 'AVRIL': 4, 'MAI': 5, 'JUIN': 6,
+    'JUILLET': 7, 'AOUT': 8, 'AOÛT': 8, 'SEPTEMBRE': 9, 'OCTOBRE': 10, 'NOVEMBRE': 11, 'DECEMBRE': 12,
 }
 
 def parse_date_string(date_str):
     """
-    Parses a date string (e.g., "AVRIL 2025", "04/2025", "2024") into a datetime object.
+    Parse a date string (e.g., "AVRIL 2025", "04/2025", "2024") into a datetime object.
     Returns datetime(year, month, 1) for consistent sorting.
     """
-    date_str_upper = date_str.upper()
-    
-    # Format: MM/YYYY (e.g., 04/2025)
-    if re.match(r'\d{2}/\d{4}', date_str_upper):
+    date_str_upper = date_str.upper().strip()
+    # Debug print
+    # print(f"Parsing date string: '{date_str_upper}'")
+
+    # Try MM/YYYY format
+    if re.match(r'^\d{2}/\d{4}$', date_str_upper):
         try:
             return datetime.strptime(date_str_upper, '%m/%Y')
         except ValueError:
-            pass # Fall through to other formats
-            
-    # Format: MMM YYYY (e.g., AVRIL 2025)
-    # Note: Regex captures 3-9 letter month names, so need to handle full names if possible.
-    # For simplicity, we assume we extract a 3-letter abbreviation for the map lookup
-    # or handle the full name in a more robust way.
-    # If the pattern_date extracts 'AVRIL', we need to map 'AVR'
-    for month_name, month_num in MONTH_MAP.items():
-        if month_name in date_str_upper: # Check if month name is part of the string
-            year_match = re.search(r'\d{4}', date_str_upper)
-            if year_match:
-                year = int(year_match.group(0))
-                return datetime(year, month_num, 1)
-                
-    # Format: YYYY (e.g., 2024) - Assume January for sorting
-    if re.match(r'\d{4}', date_str_upper) and len(date_str_upper) == 4:
-        try:
-            year = int(date_str_upper)
-            return datetime(year, 1, 1)
-        except ValueError:
             pass
 
-    # Fallback for unknown or unparseable formats
-    return datetime.min # Return a very early date so unparseable dates sort to the beginning
+    # Try to find month name and year
+    # Extract year
+    year_match = re.search(r'\b(\d{4})\b', date_str_upper)
+    year = int(year_match.group(1)) if year_match else None
+
+    # Try to find month in MONTH_MAP keys
+    for month_name, month_num in MONTH_MAP.items():
+        if month_name in date_str_upper:
+            if year:
+                return datetime(year, month_num, 1)
+            else:
+                # If no year found, default to January of year 1 (very early)
+                return datetime.min
+
+    # If only year is present (e.g., "2024")
+    if year and len(date_str_upper) == 4:
+        return datetime(year, 1, 1)
+
+    # Fallback: unparseable dates get datetime.min to sort first
+    return datetime.min
 
 def extract_text_from_pdf(pdf_path):
+    """Extract all text from a PDF file."""
     reader = PdfReader(pdf_path)
     text = ''
     for page in reader.pages:
@@ -73,94 +82,88 @@ def extract_text_from_pdf(pdf_path):
             text += page_text + '\n'
     return text
 
+def normalize_number(num_str):
+    # Remove spaces and dots used as thousands separators
+    num_str = num_str.replace(' ', '').replace('.', '')
+    # Replace comma with dot for decimal
+    num_str = num_str.replace(',', '.')
+    return float(num_str)
+
 def parse_pdf_text(text):
-    date_match = pattern_date.search(text)
+    """
+    Extract date and average metrics from PDF text.
+    Returns (date_str, averages) or (date_str, None) if no data.
+    """
+    # Normalize text for date extraction
+    text_upper = text.upper()
+    date_match = pattern_date.search(text_upper)
     date_str = date_match.group(0).strip() if date_match else 'Unknown'
 
-    # Extract all airport data rows
     airport_data = []
     lines = text.splitlines()
-    
+
     for line in lines:
-        # Look for lines that contain airport names and 6 price values
-        # Each data line should have 6 decimal numbers (3 domestic + 3 international)
-        numbers = re.findall(r'\b\d+\.\d+\b', line)
-        
-        # Skip header lines and other non-data lines
+        # Extract decimal numbers (e.g., 123.45)
+        numbers = re.findall(r'\d{1,3}(?:[ .]\d{3})*(?:[.,]\d+)', line)
         if len(numbers) >= 6:
-            # Take the first 6 numbers as the 6 metrics
             try:
-                row_values = [float(num) for num in numbers[:6]]
+                row_values = [normalize_number(num) for num in numbers[:6]]
                 airport_data.append(row_values)
             except ValueError:
                 continue
-    
+
     if not airport_data:
         return date_str, None
-    
-    # Calculate averages across all airports for each metric
+
+    # Compute average per metric
     num_metrics = 6
     averages = []
-    
-    for metric_idx in range(num_metrics):
-        metric_values = [row[metric_idx] for row in airport_data]
+    for idx in range(num_metrics):
+        metric_values = [row[idx] for row in airport_data]
         if metric_values:
-            avg = statistics.mean(metric_values)
-            averages.append(avg)
-    
-    if len(averages) != 6:
+            averages.append(statistics.mean(metric_values))
+
+    if len(averages) != num_metrics:
         return date_str, None
-        
+
     return date_str, averages
 
-# Dictionary to store all per-file averages grouped by date
-data_by_date = {}
+def main():
+    data_by_date = {}
 
-# Print header for per-file output
-header = ['Year_Month'] + metrics
-print('--- Per-File Averages ---')
-print('\t'.join(header))
+    header = ['Year_Month'] + metrics
+    print('--- Per-File Averages ---')
+    print('\t'.join(header))
 
-for filename in os.listdir(folder_path):
-    if filename.lower().endswith('.pdf'):
-        file_path = os.path.join(folder_path, filename)
-        text = extract_text_from_pdf(file_path)
-        date_str, values = parse_pdf_text(text)
-        if values:
-            # Store the values (per file) in the data structure
-            if date_str not in data_by_date:
-                data_by_date[date_str] = []
-            data_by_date[date_str].append(values)
+    for filename in sorted(os.listdir(folder_path)):
+        if filename.lower().endswith('.pdf'):
+            file_path = os.path.join(folder_path, filename)
+            text = extract_text_from_pdf(file_path)
+            date_str, values = parse_pdf_text(text)
 
-            # Print the per-file averages immediately
-            averages_rounded = [round(v, 3) for v in values]
-            row = [date_str] + [str(avg) for avg in averages_rounded]
-            print('\t'.join(row))
+            print(f"File: {filename}, Extracted Date: {date_str}, Values Found: {'Yes' if values else 'No'}")
 
-# After processing all files, compute and print overall averages per date
-print('\n--- Overall Averages per Date (Sorted) ---')
-print('\t'.join(header))
+            if values:
+                data_by_date.setdefault(date_str, []).append(values)
 
-# Sort the keys (date strings) using the custom parsing function
-# to ensure sorting by year, then month
-sorted_dates = sorted(data_by_date.keys(), key=parse_date_string)
+                averages_rounded = [round(v, 3) for v in values]
+                row = [date_str] + [str(avg) for avg in averages_rounded]
+                print('\t'.join(row))
 
-for date_str in sorted_dates:
-    all_values = data_by_date[date_str]  # list of lists (e.g., [[val1, val2,...], [val1, val2,...]])
-    
-    # Transpose to get lists of values per metric for averaging across files for this date
-    # Example: if all_values = [[1,2,3], [4,5,6]]
-    # then transposed = [(1,4), (2,5), (3,6)]
-    transposed = list(zip(*all_values))
-    
-    overall_averages = [round(statistics.mean(vals), 3) for vals in transposed]
-    row = [date_str] + [str(avg) for avg in overall_averages]
-    print('\t'.join(row))
+    print('\n--- Overall Averages per Date (Sorted) ---')
+    print('\t'.join(header))
 
-# Optional: Save the data structure to a JSON file for persistence
-output_json_path = 'fuel_price_averages.json'
-with open(output_json_path, 'w', encoding='utf-8') as f:
-    # Prepare data for JSON: overall averages per date
+    sorted_dates = sorted(data_by_date.keys(), key=parse_date_string)
+
+    for date_str in sorted_dates:
+        all_values = data_by_date[date_str]
+        transposed = list(zip(*all_values))
+        overall_averages = [round(statistics.mean(vals), 3) for vals in transposed]
+        row = [date_str] + [str(avg) for avg in overall_averages]
+        print('\t'.join(row))
+
+    # Save to JSON
+    output_json_path = 'fuel_price_averages.json'
     json_output_data = {}
     for date_str in sorted_dates:
         all_values = data_by_date[date_str]
@@ -168,6 +171,10 @@ with open(output_json_path, 'w', encoding='utf-8') as f:
         overall_averages = [round(statistics.mean(vals), 3) for vals in transposed]
         json_output_data[date_str] = overall_averages
 
-    json.dump(json_output_data, f, indent=4)
+    with open(output_json_path, 'w', encoding='utf-8') as f:
+        json.dump(json_output_data, f, indent=4)
 
-print(f'\nData saved to {output_json_path}')
+    print(f'\nData saved to {output_json_path}')
+
+if __name__ == '__main__':
+    main()
